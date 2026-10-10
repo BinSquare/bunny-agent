@@ -6,3 +6,4 @@
 - Validated local and cloud create, file transfer, stop and reconnect; confirmed the installed runner starts on cloud and a local manager-level agent run streams output.
 - Added focused adapter tests and documented local and cloud setup.
 - Forward only supported Claude token and proxy environment variables from the manager CLI into the Smol runner VM; leave unrelated host variables out.
+- Reject Cloud file uploads and reads with path characters that the current Cloud file proxy changes; preserve those paths on local VMs and validate uploads before writing any file.

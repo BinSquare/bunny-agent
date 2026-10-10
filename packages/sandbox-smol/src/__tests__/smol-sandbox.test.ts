@@ -107,6 +107,46 @@ describe("SmolSandbox", () => {
     expect(await handle.readFile("/workspace/result.txt")).toBe("result");
   });
 
+  it("rejects Cloud paths that the file proxy would change before any upload", async () => {
+    const handle = await new SmolSandbox({ target: "cloud" }).attach();
+    vi.clearAllMocks();
+    for (const filePath of [
+      "odd#name",
+      "odd?name",
+      "odd%20name",
+      "odd\nname",
+    ]) {
+      await expect(
+        handle.upload(
+          [
+            { path: "safe.txt", content: "safe" },
+            { path: filePath, content: "unsafe" },
+          ],
+          "/workspace",
+        ),
+      ).rejects.toThrow("Smol Cloud file paths cannot contain");
+      await expect(handle.readFile(`/workspace/${filePath}`)).rejects.toThrow(
+        "Smol Cloud file paths cannot contain",
+      );
+    }
+    await expect(
+      handle.upload(
+        [{ path: "safe.txt", content: "unsafe" }],
+        "/workspace/odd#dir",
+      ),
+    ).rejects.toThrow("Smol Cloud file paths cannot contain");
+    expect(fake.machine.exec).not.toHaveBeenCalled();
+    expect(fake.machine.writeFile).not.toHaveBeenCalled();
+    expect(fake.machine.readFile).not.toHaveBeenCalled();
+
+    const local = await new SmolSandbox({ target: "local" }).attach();
+    await local.upload([{ path: "odd#name", content: "local" }], "/workspace");
+    expect(fake.machine.writeFile).toHaveBeenCalledWith(
+      "/workspace/odd#name",
+      "local",
+    );
+  });
+
   it("reconnects a named cloud VM, waits for readiness and stops without deletion", async () => {
     fake.list.mockResolvedValue([{ id: "mach-existing", state: "stopped" }]);
     const sandbox = new SmolSandbox({ target: "cloud", name: "agent-1" });

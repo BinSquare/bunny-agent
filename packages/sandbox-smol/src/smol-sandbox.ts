@@ -61,6 +61,14 @@ function checkedPath(targetDir: string, filePath: string): string {
   return path.posix.join(targetDir, filePath);
 }
 
+// The Cloud file proxy currently changes these names (smolcloud#622).
+function checkCloudFilePath(filePath: string): void {
+  if (/[?#%]|\p{Cc}/u.test(filePath))
+    throw new Error(
+      "Smol Cloud file paths cannot contain control characters, #, ?, or %",
+    );
+}
+
 function templateFiles(
   root: string,
 ): Array<{ path: string; content: Uint8Array }> {
@@ -84,6 +92,7 @@ class SmolHandle implements SandboxHandle {
 
   constructor(
     private readonly machine: Machine,
+    private readonly target: "local" | "cloud",
     private readonly workdir: string,
     private readonly env: Record<string, string>,
     private readonly reusable: boolean,
@@ -145,19 +154,24 @@ class SmolHandle implements SandboxHandle {
   ): Promise<void> {
     if (this.destroyed)
       throw new Error("Smol sandbox handle has been destroyed");
-    for (const file of files) {
+    const uploads = files.map((file) => {
       const target = checkedPath(targetDir, file.path);
+      if (this.target === "cloud") checkCloudFilePath(target);
+      return { target, content: file.content };
+    });
+    for (const { target, content } of uploads) {
       const parent = path.posix.dirname(target);
       const mkdir = await this.machine.exec(["mkdir", "-p", parent]);
       if (mkdir.exitCode !== 0)
         throw new Error(`Could not create ${parent}: ${mkdir.stderr}`);
-      await this.machine.writeFile(target, file.content);
+      await this.machine.writeFile(target, content);
     }
   }
 
   async readFile(filePath: string): Promise<string> {
     if (this.destroyed)
       throw new Error("Smol sandbox handle has been destroyed");
+    if (this.target === "cloud") checkCloudFilePath(filePath);
     return (await this.machine.readFile(filePath)).toString("utf8");
   }
 
@@ -292,6 +306,7 @@ export class SmolSandbox implements SandboxAdapter {
     try {
       const handle = new SmolHandle(
         machine,
+        this.target,
         this.workdir,
         this.getEnv(),
         Boolean(name),
